@@ -194,11 +194,15 @@ namespace MediaInfoKeeper.Patch {
             var originalLanguage = GetOriginalLanguage(item, cancellationToken);
             if (string.IsNullOrWhiteSpace(originalLanguage)) return;
 
-            query.IncludeAllLanguages = false;
+            var imageLanguages = BuildPreferredImageLanguages(item, libraryOptions, originalLanguage);
+            if (string.IsNullOrWhiteSpace(imageLanguages)) return;
+
+            var libraryPreferredImageLanguage = libraryOptions.PreferredImageLanguage;
             libraryOptions = CopyLibraryOptions(libraryOptions);
-            libraryOptions.PreferredImageLanguage = originalLanguage;
-            logger?.Debug("OriginalPoster image language: item={0}, originalLanguage={1}", GetItemLabel(item),
-                originalLanguage);
+            libraryOptions.PreferredImageLanguage = imageLanguages;
+            logger?.Debug(
+                "OriginalPoster image languages: item={0}, originalLanguage={1}, libraryPreferredImageLanguage={2}, applied={3}",
+                GetItemLabel(item), originalLanguage, libraryPreferredImageLanguage, imageLanguages);
         }
 
         private static string GetOriginalLanguage(BaseItem item, CancellationToken cancellationToken) {
@@ -298,6 +302,87 @@ namespace MediaInfoKeeper.Patch {
             }
 
             return null;
+        }
+
+        /// <summary>
+        ///     构造本轮请求的首选图片语言集合（逗号分隔，Emby 按该顺序加权排序）：
+        ///     库首选语言含中文时，中文优先、原语言其次、其余语言原样保留；
+        ///     不含中文时，原语言优先、其余语言原样保留。
+        /// </summary>
+        private static string BuildPreferredImageLanguages(BaseItem item, LibraryOptions libraryOptions,
+            string originalLanguage) {
+            var preferredLanguages = GetPreferredImageLanguages(item, libraryOptions);
+            var ordered = new List<string>();
+
+            void Add(string language) {
+                if (string.IsNullOrWhiteSpace(language)) return;
+
+                var value = language.Trim();
+                if (ordered.Any(existing => string.Equals(existing, value, StringComparison.OrdinalIgnoreCase))) return;
+
+                ordered.Add(value);
+            }
+
+            if (preferredLanguages.Any(IsChineseLanguage)) {
+                foreach (var language in preferredLanguages.Where(IsChineseLanguage)) Add(language);
+                Add(originalLanguage);
+                foreach (var language in preferredLanguages.Where(language => !IsChineseLanguage(language)))
+                    Add(language);
+            }
+            else {
+                Add(originalLanguage);
+                foreach (var language in preferredLanguages) Add(language);
+            }
+
+            return ordered.Count == 0 ? null : string.Join(",", ordered);
+        }
+
+        private static List<string> GetPreferredImageLanguages(BaseItem item, LibraryOptions libraryOptions) {
+            // Emby 4.10 的回退链：条目覆盖 -> 库首选图片语言 -> 库首选元数据语言 -> 服务器全局语言
+            var configured = GetConfiguredPreferredImageLanguage(item, libraryOptions);
+            if (string.IsNullOrWhiteSpace(configured)) configured = libraryOptions.PreferredImageLanguage;
+            if (string.IsNullOrWhiteSpace(configured)) configured = libraryOptions.PreferredMetadataLanguage;
+
+            var languages = new List<string>();
+            if (string.IsNullOrWhiteSpace(configured)) return languages;
+
+            foreach (var part in configured.Split(',')) {
+                var value = part?.Trim();
+                if (!string.IsNullOrWhiteSpace(value)) languages.Add(value);
+            }
+
+            return languages;
+        }
+
+        /// <summary>
+        ///     Emby 4.10 的 BaseItem.GetPreferredImageLanguage(LibraryOptions) 在编译期（4.9 引用）不可用，这里反射取回；
+        ///     缺失时退回 LibraryOptions.PreferredMetadataLanguage。
+        /// </summary>
+        private static string GetConfiguredPreferredImageLanguage(BaseItem item, LibraryOptions libraryOptions) {
+            try {
+                var method = item.GetType().GetMethod(
+                    "GetPreferredImageLanguage",
+                    BindingFlags.Instance | BindingFlags.Public,
+                    null,
+                    new[] { typeof(LibraryOptions) },
+                    null);
+                return method?.Invoke(item, new object[] { libraryOptions }) as string;
+            }
+            catch (Exception ex) {
+                logger?.Debug("OriginalPoster resolve preferred image language failed: {0}", ex.Message);
+                return null;
+            }
+        }
+
+        private static bool IsChineseLanguage(string language) {
+            if (string.IsNullOrWhiteSpace(language)) return false;
+
+            var value = language.Trim();
+            var dashIndex = value.IndexOf('-');
+            if (dashIndex > 0) value = value.Substring(0, dashIndex);
+
+            return string.Equals(value, "zh", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(value, "cn", StringComparison.OrdinalIgnoreCase);
         }
 
         private static LibraryOptions CopyLibraryOptions(LibraryOptions source) {
