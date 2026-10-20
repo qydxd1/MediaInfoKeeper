@@ -42,8 +42,14 @@ namespace MediaInfoKeeper.Services {
             this.getOptions = getOptions;
         }
 
-        private static string RepoReleaseUrlTemplate =>
-            $"https://api.github.com/repos/honue/MediaInfoKeeper/releases?per_page={ReleasePageSize}&page={{0}}";
+        private string RepoReleaseUrlTemplate =>
+            PluginUpdateSource.BuildReleasesUrlTemplate(
+                getOptions()?.GetEffectiveUpdatePluginOptions()?.UpdateRepository,
+                ReleasePageSize);
+
+        private string UpdateRepository =>
+            PluginUpdateSource.NormalizeRepository(
+                getOptions()?.GetEffectiveUpdatePluginOptions()?.UpdateRepository);
 
         public string LatestVersion {
             get {
@@ -110,6 +116,8 @@ namespace MediaInfoKeeper.Services {
 
         public void RefreshCache() {
             var currentChannel = GetSelectedUpdateChannel();
+            var repository = UpdateRepository;
+            logger.Info($"获取 GitHub 历史版本：仓库={repository}，频道={currentChannel}");
             var releases = FetchAllReleases(CancellationToken.None, GetGitHubToken());
             var historyInfo = BuildReleaseHistoryInfo(releases, currentChannel);
 

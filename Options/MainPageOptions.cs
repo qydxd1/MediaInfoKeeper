@@ -391,6 +391,10 @@ namespace MediaInfoKeeper.Options {
             [Description("仅用于插件 Dll 下载，例如 https://ghfast.top 已配置网络代理时通常不需要再设置这里，避免代理链路叠加。")]
             public string DownloadUrlPrefix { get; set; } = string.Empty;
 
+            [DisplayName("更新源仓库")]
+            [Description("插件 Releases 与 Version.json 的来源仓库，格式 owner/repo，也可直接填 GitHub 地址。留空使用默认值；改成自己的仓库后，自动更新只会拉取该仓库的发布，不会被原仓库覆盖。")]
+            public string UpdateRepository { get; set; } = Services.PluginUpdateSource.DefaultRepository;
+
             [Browsable(false)] public List<EditorSelectOption> UpdateChannelList { get; set; } = new();
 
             [DisplayName("更新频道")]
@@ -451,6 +455,7 @@ namespace MediaInfoKeeper.Options {
                 AddGroup("更新插件", "",
                     nameof(GitHubToken),
                     nameof(DownloadUrlPrefix),
+                    nameof(UpdateRepository),
                     nameof(UpdateChannel),
                     nameof(RestartEmbyAfterUpdate));
 

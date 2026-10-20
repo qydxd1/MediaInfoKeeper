@@ -56,9 +56,6 @@ namespace MediaInfoKeeper.ScheduledTask {
 
         private static string PluginAssemblyFilename => Assembly.GetExecutingAssembly().GetName().Name + ".dll";
 
-        private static string RepoVersionUrl =>
-            "https://raw.githubusercontent.com/honue/MediaInfoKeeper/master/Version.json";
-
         public string Key => "UpdatePluginTask";
 
         public string Name => "01.更新插件";
@@ -89,6 +86,7 @@ namespace MediaInfoKeeper.ScheduledTask {
             try {
                 var updatePluginOptions = Plugin.Instance.Options.GetEffectiveUpdatePluginOptions();
                 var githubToken = updatePluginOptions?.GitHubToken;
+                var updateRepository = PluginUpdateSource.NormalizeRepository(updatePluginOptions?.UpdateRepository);
                 var downloadUrlPrefix = updatePluginOptions?.DownloadUrlPrefix;
                 var updateChannel = string.IsNullOrWhiteSpace(updatePluginOptions?.UpdateChannel)
                     ? GitHubOptions.UpdateChannelOption.Stable.ToString()
@@ -97,10 +95,11 @@ namespace MediaInfoKeeper.ScheduledTask {
                 var embyVersion = Plugin.Instance?.AppHost?.ApplicationVersion ?? new Version(0, 0, 0, 0);
 
                 logger.Info(
-                    "开始检查插件更新：当前插件版本={0}，当前Emby版本={1}，更新频道={2}",
+                    "开始检查插件更新：当前插件版本={0}，当前Emby版本={1}，更新频道={2}，更新源仓库={3}",
                     currentVersionText,
                     embyVersion,
-                    updateChannel);
+                    updateChannel,
+                    updateRepository);
 
                 var apiResult = Plugin.ReleaseInfoService.SelectCachedReleaseForChannel(updateChannel);
                 var cachedReleaseTag = GetReleaseTag(apiResult);
@@ -301,10 +300,12 @@ namespace MediaInfoKeeper.ScheduledTask {
             CancellationToken cancellationToken,
             string updateChannel,
             bool isPrerelease) {
+            var updatePluginOptions = Plugin.Instance.Options.GetEffectiveUpdatePluginOptions();
+            var githubToken = updatePluginOptions?.GitHubToken;
+            var repoVersionUrl = PluginUpdateSource.BuildVersionManifestUrl(updatePluginOptions?.UpdateRepository);
             try {
-                var githubToken = Plugin.Instance.Options.GetEffectiveUpdatePluginOptions()?.GitHubToken;
                 var manifestRequestOptions = new HttpRequestOptions {
-                    Url = RepoVersionUrl,
+                    Url = repoVersionUrl,
                     CancellationToken = cancellationToken,
                     AcceptHeader = "application/json",
                     UserAgent = "MediaInfoKeeper",
@@ -334,7 +335,7 @@ namespace MediaInfoKeeper.ScheduledTask {
                 if (compatibility != null) return compatibility;
             }
             catch (Exception ex) {
-                logger.Debug("加载 Version.json 失败：url={0}, error={1}", RepoVersionUrl, ex.Message);
+                logger.Debug("加载 Version.json 失败：url={0}, error={1}", repoVersionUrl, ex.Message);
             }
 
             logger.Info("未获取到 Version.json 兼容信息，默认允许更新。");
