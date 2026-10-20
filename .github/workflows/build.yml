@@ -1,0 +1,65 @@
+name: Build artifacts
+
+# Lightweight build used to verify compilation on GitHub-hosted runners and to hand out
+# ready-to-load plugin dlls. Unlike ci.yml this job never creates tags or releases.
+
+on:
+  push:
+    branches:
+      - master
+      - main
+    paths:
+      - "**/*.cs"
+      - "**/*.csproj"
+      - "Directory.Build.props"
+      - "Resources/**"
+      - ".github/workflows/build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        framework: [net8.0, net6.0]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: |
+            6.0.x
+            8.0.x
+
+      - name: Restore
+        run: dotnet restore MediaInfoKeeper.csproj
+
+      - name: Install ilrepack tool
+        run: dotnet tool install -g dotnet-ilrepack --version 2.0.44
+
+      - name: Build ${{ matrix.framework }}
+        run: |
+          dotnet build MediaInfoKeeper.csproj \
+            -c Release \
+            -f ${{ matrix.framework }} \
+            --no-restore \
+            -t:Rebuild
+
+      - name: Verify merged assembly
+        run: |
+          test -f "Build/bin/Release/${{ matrix.framework }}/MediaInfoKeeper.dll"
+          ls -l "Build/bin/Release/${{ matrix.framework }}/MediaInfoKeeper.dll"
+
+      - name: Upload plugin dll
+        uses: actions/upload-artifact@v4
+        with:
+          name: MediaInfoKeeper-${{ matrix.framework }}
+          path: Build/bin/Release/${{ matrix.framework }}/MediaInfoKeeper.dll
+          if-no-files-found: error
